@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -42,6 +43,33 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final urlController = TextEditingController();
   late final IotCenterClient client;
+  final Map<SensorInfo, StreamSubscription<Map<String, double>>> subscriptions =
+      {};
+
+  isSubscribed(SensorInfo sensor) {
+    return subscriptions.containsKey(sensor);
+  }
+
+  subscribe(SensorInfo sensor) {
+    setState(() {
+      final subscriptionHandler = sensor.stream!.listen((metrics) {
+        final measurements = metrics.map((key, value) {
+          final name = sensor.name + (key != "" ? "_$key" : "");
+          return MapEntry(name, value);
+        });
+        client.writePoint(measurements);
+      });
+      subscriptions[sensor] = subscriptionHandler;
+    });
+  }
+
+  unsubscribe(SensorInfo sensor) {
+    setState(() {
+      final subscriptionHandler = subscriptions[sensor];
+      subscriptionHandler!.cancel();
+      subscriptions.remove(sensor);
+    });
+  }
 
   connectClient() async {
     await client.configure();
@@ -72,7 +100,7 @@ class _HomePageState extends State<HomePage> {
       body: ListView(
         children: [
           Text(client.clientID),
-          Text(client.clientConfig.influxUrl),
+          Text(client.config?.influxUrl ?? ""),
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -89,11 +117,22 @@ class _HomePageState extends State<HomePage> {
           ),
           ...widget.sensors
               .map((SensorInfo sensor) => SwitchListTile(
-                    // value: con.sensorIsWriting(sensor),
-                    // onChanged: onChanged(sensor),
                     title: Text(sensor.name),
-                    value: true,
-                    onChanged: null,
+                    value: isSubscribed(sensor),
+                    onChanged: client.connected &&
+                            (sensor.availeble ||
+                                sensor.requestPermission != null)
+                        ? ((value) async {
+                            if (!sensor.availeble) {
+                              await sensor.requestPermission!();
+                              if (!sensor.availeble) {
+                                setState(() {});
+                                return;
+                              }
+                            }
+                            value ? subscribe(sensor) : unsubscribe(sensor);
+                          })
+                        : null,
                   ))
               .toList(),
         ],

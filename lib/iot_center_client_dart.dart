@@ -3,8 +3,11 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+Uri? uriTryParseNoProtocol(String url) =>
+    Uri.tryParse(url) ?? Uri.tryParse("http://" + url);
+
 fetchJson(String url) async {
-  var uri = Uri.tryParse(url) ?? Uri.tryParse("http://" + url);
+  var uri = uriTryParseNoProtocol(url);
 
   if (uri == null) {
     throw Exception("invalid url $url");
@@ -71,13 +74,20 @@ class IotCenterClient {
     return influxDBClient != null;
   }
 
-  final clientConfig = ClientConfig();
-
   configure() async {
     final url = "$iotCenterUrl/api/env/$clientID";
     try {
       final rawConfig = await fetchJson(url);
       config = ClientConfig.fromJson(rawConfig);
+
+      /// Fix influx url for docker
+      final influxUri = Uri.parse(config!.influxUrl);
+      if (influxUri.host == "influxdb_v2") {
+        final iotCenterHost = uriTryParseNoProtocol(iotCenterUrl)!.host;
+        config!.influxUrl =
+            config!.influxUrl.replaceFirst("influxdb_v2", iotCenterHost);
+      }
+
       influxDBClient = InfluxDBClient(
           url: config!.influxUrl,
           token: config!.influxToken,
@@ -91,7 +101,7 @@ class IotCenterClient {
     return true;
   }
 
-  writePoint(Map<String, double> measurements, Map<String, String>? sensors) {
+  writePoint(Map<String, double> measurements, [Map<String, String>? sensors]) {
     if (!connected) throw NotConnectedException();
     final point = Point("environment")
         .addTag("clientId", clientID)
@@ -107,8 +117,8 @@ class IotCenterClient {
     }
     writeApi!.write(
       point,
-      bucket: clientConfig.influxBucket,
-      org: clientConfig.influxOrg,
+      bucket: config!.influxBucket,
+      org: config!.influxOrg,
     );
   }
 

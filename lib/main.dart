@@ -34,6 +34,8 @@ Future saveClient(IotCenterClient client) async {
 
 Future<IotCenterClient?> loadClient() async {
   try {
+    final minLogoTimeFuture =
+        Future.delayed(const Duration(milliseconds: 1500));
     final sp = await SharedPreferences.getInstance();
     final str = sp.getString(iotCenterSharedPreferencesKey);
     final json = jsonDecode(str ?? "");
@@ -43,8 +45,7 @@ Future<IotCenterClient?> loadClient() async {
       client.clientID = generateNewId();
       await saveClient(client);
     }
-    // TODO: startup screen
-    await Future.delayed(await Duration(seconds: 2));
+    await minLogoTimeFuture;
     return client;
   } catch (e) {
     return null;

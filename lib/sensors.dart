@@ -29,6 +29,7 @@ class SensorInfo {
     if (_permissionRequester == null) return null;
     return (() async {
       stream = await _permissionRequester!();
+      _permissionRequester = null;
     });
   }
 
@@ -36,7 +37,7 @@ class SensorInfo {
       {this.sensorType,
       this.stream,
       PermissionRequester? permissionRequester}) {
-    permissionRequester = permissionRequester;
+    _permissionRequester = permissionRequester;
   }
 }
 
@@ -108,6 +109,7 @@ class Sensors {
           : null;
 
   Future<Stream<SensorMeasurement>?> get _geo async {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
     final permission = await Geolocator.checkPermission();
     return (permission == LocationPermission.always ||
             permission == LocationPermission.whileInUse)
@@ -122,10 +124,17 @@ class Sensors {
         : null;
   }
 
-  PermissionRequester get _geoRequester => () async {
-        await Geolocator.requestPermission();
-        return await _geo;
-      };
+  Future<PermissionRequester?> get _geoRequester async {
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse) return null;
+
+    return () async {
+      await Geolocator.requestPermission();
+      return await _geo;
+    };
+  }
 
   Future<List<SensorInfo>> get sensors async => <SensorInfo>[
         SensorInfo("Accelerometer", stream: _accelerometer),
@@ -137,6 +146,6 @@ class Sensors {
         SensorInfo("Light", stream: await _light),
         SensorInfo("Pressure", stream: await _pressure),
         SensorInfo("Geo",
-            stream: await _geo, permissionRequester: _geoRequester),
+            stream: await _geo, permissionRequester: await _geoRequester),
       ];
 }
