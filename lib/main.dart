@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:iot_device_flutter/home_page.dart';
 import 'package:iot_device_flutter/iot_center_client_dart.dart';
 import 'package:iot_device_flutter/sensors.dart';
 import 'package:iot_device_flutter/styles.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:uuid/uuid.dart';
@@ -14,7 +16,7 @@ void main() {
   runApp(const MyApp());
 }
 
-String platformStr = defaultTargetPlatform == TargetPlatform.android
+final String platformStr = defaultTargetPlatform == TargetPlatform.android
     ? "android"
     : defaultTargetPlatform == TargetPlatform.iOS
         ? "ios"
@@ -25,47 +27,82 @@ String generateNewId() {
   return "mobile-" + uuid.v4().replaceAll("-", "");
 }
 
-Future saveClient(IotCenterClient client) async {
-  final sp = await SharedPreferences.getInstance();
-  final json = client.toJson();
-  final string = jsonEncode(json);
-  sp.setString(iotCenterSharedPreferencesKey, string);
-}
-
-Future<IotCenterClient?> loadClient() async {
-  try {
-    final minLogoTimeFuture =
-        Future.delayed(const Duration(milliseconds: 1500));
-    final sp = await SharedPreferences.getInstance();
-    final str = sp.getString(iotCenterSharedPreferencesKey);
-    final json = jsonDecode(str ?? "");
-    final client = IotCenterClient.fromJson(json);
-    if (client == null) return null;
-    if (client.clientID == "") {
-      client.clientID = generateNewId();
-      await saveClient(client);
-    }
-    await minLogoTimeFuture;
-    return client;
-  } catch (e) {
-    return null;
-  }
-}
-
-createDefaultClient() =>
-    IotCenterClient("", generateNewId(), device: platformStr);
-
 class AppState {
   IotCenterClient iotCenterClient;
   List<SensorInfo> sensors;
 
-  AppState(this.iotCenterClient, this.sensors);
-}
+  static Future saveClient(IotCenterClient client) async {
+    final sp = await SharedPreferences.getInstance();
+    final json = client.toJson();
+    final string = jsonEncode(json);
+    sp.setString(iotCenterSharedPreferencesKey, string);
+  }
 
-Future<AppState> loadApp() async {
-  final sensorsF = Sensors().sensors;
-  final clientF = loadClient();
-  return AppState(await clientF ?? createDefaultClient(), await sensorsF);
+  static Future<String?> tryDiscover() async {
+    try {
+      final info = NetworkInfo();
+      var wifiBroadcast =
+          InternetAddress((await info.getWifiBroadcast())!.substring(1));
+      final wifiAddress = InternetAddress((await info.getWifiIP())!);
+
+      return await IotCenterClient.tryObtainUrl(wifiAddress, wifiBroadcast);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<IotCenterClient?> loadClient() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final str = sp.getString(iotCenterSharedPreferencesKey);
+      final json = jsonDecode(str ?? "");
+      final client = IotCenterClient.fromJson(json);
+      if (client == null) return null;
+      if (client.clientID == "") {
+        client.clientID = generateNewId();
+        await saveClient(client);
+      }
+      return client;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<IotCenterClient> setupClient() async {
+    final discoverFuture = tryDiscover();
+    final client = await loadClient() ??
+        IotCenterClient("", generateNewId(), device: platformStr);
+
+    if (!await client.testConnection()) {
+      final loadedUrl = client.iotCenterUrl;
+      final discoverUrl = await discoverFuture;
+
+      if (discoverUrl != null) {
+        client.iotCenterUrl = discoverUrl;
+        if (await client.testConnection()) {
+          saveClient(client);
+        } else {
+          client.iotCenterUrl = loadedUrl;
+        }
+      }
+    }
+
+    try {
+      await client.configure();
+      // ignore: empty_catches
+    } catch (e) {}
+    return client;
+  }
+
+  static Future<AppState> loadApp() async {
+    final minLogoTimeF = Future.delayed(const Duration(milliseconds: 1500));
+    final sensorsF = Sensors().sensors;
+    final clientF = setupClient();
+    await minLogoTimeF;
+    return AppState(await clientF, await sensorsF);
+  }
+
+  AppState(this.iotCenterClient, this.sensors);
 }
 
 class MyApp extends StatelessWidget {
@@ -79,14 +116,14 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.blue,
         ),
         home: FutureBuilder<AppState>(
-            future: loadApp(),
+            future: AppState.loadApp(),
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 final data = snapshot.data!;
                 return HomePage(
                   title: 'Flutter Demo Home Page',
                   client: data.iotCenterClient,
-                  saveClient: saveClient,
+                  saveClient: AppState.saveClient,
                   sensors: data.sensors,
                 );
               }

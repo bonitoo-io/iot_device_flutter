@@ -72,6 +72,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   connectClient() async {
+    if (!await client.testConnection()) return;
     await client.configure();
     setState(() {});
   }
@@ -87,7 +88,7 @@ class _HomePageState extends State<HomePage> {
         client.disconnect();
         client.iotCenterUrl = urlController.text;
       });
-      saveClient(client);
+      AppState.saveClient(client);
     });
   }
 

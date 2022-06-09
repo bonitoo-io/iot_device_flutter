@@ -1,12 +1,18 @@
+import 'dart:io';
+
 import 'package:influxdb_client/api.dart';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-Uri? uriTryParseNoProtocol(String url) =>
-    Uri.tryParse(url) ?? Uri.tryParse("http://" + url);
+const udpPort = 5001;
+const discoverTimeout = 1500;
 
-fetchJson(String url) async {
+Uri? uriTryParseNoProtocol(String url) => url.substring(0, 4) == "http"
+    ? Uri.tryParse(url)
+    : Uri.tryParse("http://" + url);
+
+Future fetchJson(String url) async {
   var uri = uriTryParseNoProtocol(url);
 
   if (uri == null) {
@@ -74,6 +80,16 @@ class IotCenterClient {
     return influxDBClient != null;
   }
 
+  Future<bool> testConnection([Duration? timeout]) async {
+    try {
+      await fetchJson("$iotCenterUrl/api/health")
+          .timeout(timeout ?? const Duration(seconds: 1));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   configure() async {
     final url = "$iotCenterUrl/api/env/$clientID";
     try {
@@ -132,6 +148,28 @@ class IotCenterClient {
   // TODO: dispose sensors and iotCenterClient when closing app
   dispose() async {
     disconnect();
+  }
+
+  static Future<String?> tryObtainUrl(
+      InternetAddress selfAddress, InternetAddress broadcast) async {
+    final udpSocket = await RawDatagramSocket.bind(selfAddress, udpPort);
+    try {
+      udpSocket.broadcastEnabled = true;
+      final urlF = udpSocket
+          .map((event) => udpSocket.receive())
+          .where((event) =>
+              event != null &&
+              String.fromCharCodes(event.data) == "IOT_CENTER_URL_RESPONSE")
+          .map((event) => "${event!.address.address}:5000")
+          .first;
+      List<int> data = utf8.encode('IOT_CENTER_URL_REQUEST');
+      udpSocket.send(data, broadcast, udpPort);
+      return await urlF.timeout(const Duration(milliseconds: discoverTimeout));
+    } catch (e) {
+      return null;
+    } finally {
+      udpSocket.close();
+    }
   }
 
   IotCenterClient(this.iotCenterUrl, this.clientID, {this.device = "dart"});
