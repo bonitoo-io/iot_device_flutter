@@ -90,7 +90,7 @@ class IotCenterClient {
     }
   }
 
-  configure() async {
+  Future<bool> configure() async {
     final url = "$iotCenterUrl/api/env/$clientID";
     try {
       final rawConfig = await fetchJson(url);
@@ -145,7 +145,6 @@ class IotCenterClient {
     influxDBClient = null;
   }
 
-  // TODO: dispose sensors and iotCenterClient when closing app
   dispose() async {
     disconnect();
   }

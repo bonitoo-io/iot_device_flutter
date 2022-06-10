@@ -33,6 +33,7 @@ services:
     image: ghcr.io/bonitoo-io/iot-center-v2/iot-center:nightly
     ports:
       - "5000:5000"
+      - "5001:5001/udp"
     environment:
       - INFLUX_URL=http://influxdb_v2:8086
       - INFLUX_TOKEN=my-token
@@ -43,5 +44,3 @@ services:
       - mosquitto
       - influxdb_v2
       - telegraf
-    volumes:
-      - ./config/data:/usr/src/data

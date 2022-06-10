@@ -114,7 +114,6 @@ class Sensors {
     return (permission == LocationPermission.always ||
             permission == LocationPermission.whileInUse)
         ? Geolocator.getPositionStream().map((pos) {
-            // TODO: more metrics
             return {
               "lat": pos.latitude,
               "lon": pos.longitude,
@@ -139,8 +138,9 @@ class Sensors {
   Future<List<SensorInfo>> get sensors async => <SensorInfo>[
         SensorInfo("Accelerometer", stream: _accelerometer),
         SensorInfo("UserAccelerometer", stream: _userAccelerometer),
+        SensorInfo("Gyroscope", stream: _gyroscope),
         SensorInfo("Magnetometer", stream: _magnetometer),
-        SensorInfo("Battery", stream: _battery),
+        SensorInfo("Battery", stream: _battery.asBroadcastStream()),
         SensorInfo("Temperature", stream: await _temperature),
         SensorInfo("Humidity", stream: await _humidity),
         SensorInfo("Light", stream: await _light),

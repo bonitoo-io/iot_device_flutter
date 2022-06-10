@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:iot_device_flutter/components/influx_intro_logo.dart';
+import 'package:iot_device_flutter/components/styles/influx_styles.dart';
 import 'package:iot_device_flutter/home_page.dart';
 import 'package:iot_device_flutter/iot_center_client_dart.dart';
 import 'package:iot_device_flutter/sensors.dart';
-import 'package:iot_device_flutter/styles.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -41,9 +43,9 @@ class AppState {
   static Future<String?> tryDiscover() async {
     try {
       final info = NetworkInfo();
+      final wifiAddress = InternetAddress((await info.getWifiIP())!);
       var wifiBroadcast =
           InternetAddress((await info.getWifiBroadcast())!.substring(1));
-      final wifiAddress = InternetAddress((await info.getWifiIP())!);
 
       return await IotCenterClient.tryObtainUrl(wifiAddress, wifiBroadcast);
     } catch (e) {
@@ -110,11 +112,16 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    precacheImage(
+        const AssetImage("assets/images/influxdata-logo.png"), context);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+
     return MaterialApp(
         title: 'Flutter Demo',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-        ),
+        theme: influxThemeData,
         home: FutureBuilder<AppState>(
             future: AppState.loadApp(),
             builder: (context, snapshot) {
@@ -127,17 +134,7 @@ class MyApp extends StatelessWidget {
                   sensors: data.sensors,
                 );
               }
-              return Container(
-                  padding: const EdgeInsets.all(50),
-                  decoration: const BoxDecoration(gradient: pinkPurpleGradient),
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      image: DecorationImage(
-                          image:
-                              AssetImage("assets/images/influxdata-logo.png"),
-                          fit: BoxFit.contain),
-                    ),
-                  ));
+              return const InfluxIntroLogo();
             }));
   }
 }

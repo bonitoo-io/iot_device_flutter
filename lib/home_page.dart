@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:iot_device_flutter/components/influx_scaffold.dart';
 
 import 'package:iot_device_flutter/iot_center_client_dart.dart';
 import 'package:iot_device_flutter/main.dart';
 import 'package:iot_device_flutter/sensors.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 const iotCenterSharedPreferencesKey = "iot-center";
 const defaultCenterUrl = "";
@@ -21,6 +21,10 @@ String fixLocalhost(String? url) {
   }
   return url;
 }
+
+const monospaceText = TextStyle(
+  fontFeatures: [FontFeature.tabularFigures()],
+);
 
 class HomePage extends StatefulWidget {
   const HomePage(
@@ -46,20 +50,29 @@ class _HomePageState extends State<HomePage> {
   final Map<SensorInfo, StreamSubscription<Map<String, double>>> subscriptions =
       {};
 
+  Map<String, String> currentValues = {};
+  DateTime? lastDataSent;
+
   isSubscribed(SensorInfo sensor) {
     return subscriptions.containsKey(sensor);
   }
 
   subscribe(SensorInfo sensor) {
+    if (subscriptions[sensor] != null) return;
     setState(() {
-      final subscriptionHandler = sensor.stream!.listen((metrics) {
+      subscriptions[sensor] = sensor.stream!.listen((metrics) {
         final measurements = metrics.map((key, value) {
           final name = sensor.name + (key != "" ? "_$key" : "");
           return MapEntry(name, value);
         });
+        setState(() {
+          currentValues[sensor.name] = metrics.entries
+              .map((entry) => "${entry.key}=${entry.value.toStringAsFixed(2)}")
+              .reduce((value, element) => value + "  " + element);
+          lastDataSent = DateTime.now();
+        });
         client.writePoint(measurements);
       });
-      subscriptions[sensor] = subscriptionHandler;
     });
   }
 
@@ -68,13 +81,16 @@ class _HomePageState extends State<HomePage> {
       final subscriptionHandler = subscriptions[sensor];
       subscriptionHandler!.cancel();
       subscriptions.remove(sensor);
+      currentValues.remove(sensor.name);
     });
   }
 
   connectClient() async {
     if (!await client.testConnection()) return;
-    await client.configure();
-    setState(() {});
+    if (await client.configure()) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      setState(() {});
+    }
   }
 
   @override
@@ -85,6 +101,7 @@ class _HomePageState extends State<HomePage> {
     urlController.text = client.iotCenterUrl;
     urlController.addListener(() {
       setState(() {
+        subscriptions.keys.toList().forEach(unsubscribe);
         client.disconnect();
         client.iotCenterUrl = urlController.text;
       });
@@ -94,50 +111,97 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
+    return InfluxScaffold(
+      body: Container(
+        margin: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Card(
+              child: Column(children: [
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        controller: urlController,
+                      ),
+                    ),
+                    TextButton(
+                      child: !client.connected
+                          ? const Text("Connect")
+                          : const Text("Connected"),
+                      onPressed: !client.connected ? connectClient : null,
+                    ),
+                  ],
+                ),
+              ]),
+            ),
+            Card(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: (lastDataSent != null)
+                      ? [
+                          const Text("Last data sent"),
+                          Text(
+                              lastDataSent
+                                  .toString()
+                                  .padRight(26, "0")
+                                  .substring(0, 22),
+                              style: monospaceText)
+                        ]
+                      : [
+                          Text(client.connected
+                              ? "Enable any sensor to send data"
+                              : "Connect to iot-center-v2 first")
+                        ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Card(
+                  child: Scrollbar(
+                isAlwaysShown: true,
+                child: ListView(
+                  children: [
+                    ...widget.sensors
+                        .map((SensorInfo sensor) => SwitchListTile(
+                              title: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(sensor.name),
+                                  Text(currentValues[sensor.name] ?? "",
+                                      style: monospaceText),
+                                ],
+                              ),
+                              value: isSubscribed(sensor),
+                              onChanged: client.connected &&
+                                      (sensor.availeble ||
+                                          sensor.requestPermission != null)
+                                  ? ((value) async {
+                                      if (!sensor.availeble) {
+                                        await sensor.requestPermission!();
+                                        if (!sensor.availeble) {
+                                          setState(() {});
+                                          return;
+                                        }
+                                      }
+                                      value
+                                          ? subscribe(sensor)
+                                          : unsubscribe(sensor);
+                                    })
+                                  : null,
+                            ))
+                        .toList(),
+                  ],
+                ),
+              )),
+            ),
+          ],
+        ),
       ),
-      body: ListView(
-        children: [
-          Text(client.clientID),
-          Text(client.config?.influxUrl ?? ""),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              TextField(
-                controller: urlController,
-              ),
-              TextButton(
-                child: !client.connected
-                    ? const Text("Connect")
-                    : const Text("Connected"),
-                onPressed: !client.connected ? connectClient : null,
-              ),
-            ],
-          ),
-          ...widget.sensors
-              .map((SensorInfo sensor) => SwitchListTile(
-                    title: Text(sensor.name),
-                    value: isSubscribed(sensor),
-                    onChanged: client.connected &&
-                            (sensor.availeble ||
-                                sensor.requestPermission != null)
-                        ? ((value) async {
-                            if (!sensor.availeble) {
-                              await sensor.requestPermission!();
-                              if (!sensor.availeble) {
-                                setState(() {});
-                                return;
-                              }
-                            }
-                            value ? subscribe(sensor) : unsubscribe(sensor);
-                          })
-                        : null,
-                  ))
-              .toList(),
-        ],
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }

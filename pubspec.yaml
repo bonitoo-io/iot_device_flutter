@@ -33,3 +33,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+  fonts:
+    - family: Rubik
+      fonts:
+        - asset: assets/fonts/Rubik-VariableFont_wght.ttf
+          style: normal
+        - asset: assets/fonts/Rubik-Italic-VariableFont_wght.ttf
+          style: italic
