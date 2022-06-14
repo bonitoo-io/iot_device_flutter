@@ -12,20 +12,23 @@ Uri? uriTryParseNoProtocol(String url) => url.substring(0, 4) == "http"
     ? Uri.tryParse(url)
     : Uri.tryParse("http://" + url);
 
-Future fetchJson(String url) async {
+Future<String> fetch(String url, {post = false}) async {
   var uri = uriTryParseNoProtocol(url);
 
   if (uri == null) {
     throw Exception("invalid url $url");
   }
 
-  var response = await http.get(uri);
-  if (response.statusCode == 200) {
-    return jsonDecode(response.body);
+  var response = await (post ? http.post : http.get)(uri);
+  if (response.statusCode >= 200 && response.statusCode < 300) {
+    return response.body;
   } else {
     throw Exception('Failed to fetch');
   }
 }
+
+Future fetchJson(String url, {post = false}) async =>
+    jsonDecode(await fetch(url, post: post));
 
 class NotConnectedException implements Exception {
   @override
@@ -92,8 +95,11 @@ class IotCenterClient {
 
   Future<bool> configure() async {
     final url = "$iotCenterUrl/api/env/$clientID";
+    final setDevicePostUrl = "$iotCenterUrl/api/devices/$clientID/type/$device";
+
     try {
       final rawConfig = await fetchJson(url);
+      await fetch(setDevicePostUrl, post: true);
       config = ClientConfig.fromJson(rawConfig);
 
       /// Fix influx url for docker
