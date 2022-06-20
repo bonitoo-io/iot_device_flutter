@@ -11,6 +11,7 @@ import 'package:iot_device_flutter/sensors.dart';
 
 const iotCenterSharedPreferencesKey = "iot-center";
 const defaultCenterUrl = "";
+const clientIdPrefix = "mobile-";
 
 /// replace localhost with 10.0.2.2 for android devices
 String fixLocalhost(String? url) {
@@ -46,6 +47,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final urlController = TextEditingController();
+  final clientIdController = TextEditingController();
   late final IotCenterClient client;
   final Map<SensorInfo, StreamSubscription<Map<String, double>>> subscriptions =
       {};
@@ -85,6 +87,10 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  unsubscribeAll() {
+    subscriptions.keys.toList().forEach(unsubscribe);
+  }
+
   connectClient() async {
     if (!await client.testConnection()) return;
     if (await client.configure()) {
@@ -101,9 +107,21 @@ class _HomePageState extends State<HomePage> {
     urlController.text = client.iotCenterUrl;
     urlController.addListener(() {
       setState(() {
-        subscriptions.keys.toList().forEach(unsubscribe);
+        unsubscribeAll();
         client.disconnect();
         client.iotCenterUrl = urlController.text;
+      });
+      AppState.saveClient(client);
+    });
+
+    clientIdController.text =
+        RegExp("^$clientIdPrefix").hasMatch(client.clientID)
+            ? client.clientID.substring(clientIdPrefix.length)
+            : client.clientID;
+    clientIdController.addListener(() {
+      setState(() {
+        unsubscribeAll();
+        client.clientID = "$clientIdPrefix${clientIdController.text}";
       });
       AppState.saveClient(client);
     });
@@ -117,25 +135,51 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           children: [
             Card(
-              child: Column(children: [
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        controller: urlController,
-                      ),
-                    ),
-                    TextButton(
-                      child: !client.connected
-                          ? const Text("Connect")
-                          : const Text("Connected"),
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Column(children: [
+                  Table(
+                    columnWidths: const {0: IntrinsicColumnWidth()},
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    children: [
+                      TableRow(children: [
+                        const Align(
+                          alignment: Alignment.centerRight,
+                          child: Text("iot-center url: "),
+                        ),
+                        TextField(
+                          controller: urlController,
+                        )
+                      ]),
+                      TableRow(
+                        children: [
+                          const Align(
+                            alignment: Alignment.centerRight,
+                            child: Text("clientID: $clientIdPrefix"),
+                          ),
+                          Row(
+                            children: [
+                              // const Text(),
+                              Expanded(
+                                child: TextField(
+                                  controller: clientIdController,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      child: Text(!client.connected ? "Connect" : "Connected"),
                       onPressed: !client.connected ? connectClient : null,
                     ),
-                  ],
-                ),
-              ]),
+                  ),
+                ]),
+              ),
             ),
             Card(
               child: Container(
@@ -162,7 +206,8 @@ class _HomePageState extends State<HomePage> {
             ),
             Expanded(
               child: Card(
-                  child: Scrollbar(
+                  child: client.connected
+                      ? Scrollbar(
                 isAlwaysShown: true,
                 child: ListView(
                   children: [
@@ -197,7 +242,29 @@ class _HomePageState extends State<HomePage> {
                         .toList(),
                   ],
                 ),
-              )),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.all(16),
+                          child: Align(
+                              alignment: Alignment.topLeft,
+                              child: RichText(
+                                text: const TextSpan(children: [
+                                  // TODO: better explanation
+                                  // TODO: show ip in iot-center in case when autodiscover not working ?
+                                  TextSpan(
+                                      text: "This app is mobile client for "),
+                                  TextSpan(
+                                      text: "iot-center-v2\n",
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold)),
+                                  TextSpan(
+                                      text:
+                                          "To start you will need iot-center-v2 running in your local network"),
+                                  TextSpan(
+                                      text:
+                                          "\n\nYou can download iot-center-v2 at\nhttps://github.com/bonitoo-io/iot-center-v2")
+                                ]),
+                              )))),
             ),
           ],
         ),

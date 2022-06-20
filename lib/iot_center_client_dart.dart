@@ -70,6 +70,8 @@ class ClientConfig {
       };
 }
 
+// TODO: allow set discover port from app in case when changed in iot-center?
+// TODO: send iot-center port with discover response message (if not 5000)
 class IotCenterClient {
   String iotCenterUrl = "";
   String clientID = "";
@@ -94,8 +96,10 @@ class IotCenterClient {
   }
 
   Future<bool> configure() async {
-    final url = "$iotCenterUrl/api/env/$clientID";
-    final setDevicePostUrl = "$iotCenterUrl/api/devices/$clientID/type/$device";
+    final clientIDUri = Uri.encodeComponent(clientID);
+    final url = "$iotCenterUrl/api/env/$clientIDUri";
+    final setDevicePostUrl =
+        "$iotCenterUrl/api/devices/$clientIDUri/type/$device";
 
     try {
       final rawConfig = await fetchJson(url);

@@ -26,7 +26,7 @@ final String platformStr = defaultTargetPlatform == TargetPlatform.android
 
 String generateNewId() {
   var uuid = const Uuid();
-  return "mobile-" + uuid.v4().replaceAll("-", "");
+  return clientIdPrefix + uuid.v4().replaceAll("-", "").substring(0, 12);
 }
 
 class AppState {
@@ -60,7 +60,7 @@ class AppState {
       final json = jsonDecode(str ?? "");
       final client = IotCenterClient.fromJson(json);
       if (client == null) return null;
-      if (client.clientID == "") {
+      if (client.clientID == "" || client.clientID == clientIdPrefix) {
         client.clientID = generateNewId();
         await saveClient(client);
       }
