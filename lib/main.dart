@@ -44,8 +44,12 @@ class AppState {
     try {
       final info = NetworkInfo();
       final wifiAddress = InternetAddress((await info.getWifiIP())!);
-      var wifiBroadcast =
-          InternetAddress((await info.getWifiBroadcast())!.substring(1));
+      final wifiBroadcastRaw = (await info.getWifiBroadcast());
+      if (wifiBroadcastRaw == null) return null;
+      var wifiBroadcast = InternetAddress(
+          wifiBroadcastRaw.substring(0, 1) == "/"
+              ? wifiBroadcastRaw.substring(1)
+              : wifiBroadcastRaw);
 
       return await IotCenterClient.tryObtainUrl(wifiAddress, wifiBroadcast);
     } catch (e) {
