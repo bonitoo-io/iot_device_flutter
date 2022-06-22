@@ -70,8 +70,6 @@ class ClientConfig {
       };
 }
 
-// TODO: allow set discover port from app in case when changed in iot-center?
-// TODO: send iot-center port with discover response message (if not 5000)
 class IotCenterClient {
   String iotCenterUrl = "";
   String clientID = "";
