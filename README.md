@@ -1,12 +1,10 @@
 # IoT Device flutter
 
+||||
+|:-----:|:-----:|:-----:|
+| ![](/docs/img/logo.png) | ![](/docs/img/not-connected.png) | ![](/docs/img/sending-data.png) |
 
-<div style="display:flex;">
-    <img src="./docs/img/logo.png" style="min-width: 0; flex-grow: 1;"/>
-    <img src="./docs/img/not-connected.png"style="min-width: 0; flex-grow: 1;" />
-    <img src="./docs/img/sending-data.png"style="min-width: 0; flex-grow: 1;" />
-</div>
-<br></br>
+
 
 This repository contains the IoT device application that connects into iot-center-v2 and writes sensor data through InfluxDB dart client.
 
