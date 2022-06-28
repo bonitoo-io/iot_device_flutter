@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:developer';
+
 import 'package:battery_plus/battery_plus.dart';
 import 'package:environment_sensors/environment_sensors.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,21 +14,22 @@ import 'package:sensors_plus/sensors_plus.dart';
 ///   then there will be only one entry with "" key
 typedef SensorMeasurement = Map<String, double>;
 
+/// Used by SensorInfo to ask user for permission to use sensor
 typedef PermissionRequester = Future<Stream<SensorMeasurement>?> Function();
 
 class SensorInfo {
   /// sensor or measurement name
   String name;
-  String? sensorType;
   Stream<SensorMeasurement>? stream;
 
   bool get availeble {
     return (stream != null);
   }
 
+  /// if sensor needs ask user for permission, this function is set
   PermissionRequester? _permissionRequester;
 
-  Future Function()? get requestPermission {
+  Future<void> Function()? get requestPermission {
     if (_permissionRequester == null) return null;
     return (() async {
       stream = await _permissionRequester!();
@@ -34,9 +38,7 @@ class SensorInfo {
   }
 
   SensorInfo(this.name,
-      {this.sensorType,
-      this.stream,
-      PermissionRequester? permissionRequester}) {
+      {this.stream, PermissionRequester? permissionRequester}) {
     _permissionRequester = permissionRequester;
   }
 }
@@ -148,4 +150,66 @@ class Sensors {
         SensorInfo("Geo",
             stream: await _geo, permissionRequester: await _geoRequester),
       ];
+}
+
+class SensorsSubscriptionManager {
+  final Map<SensorInfo, StreamSubscription<Map<String, double>>> subscriptions =
+      {};
+
+  final Map<String, SensorMeasurement> _lastValues = {};
+  DateTime? _lastDataRead;
+
+  DateTime? get lastDataRead => _lastDataRead;
+
+  /// Returns function that adds sensorname into SensorMeasurement
+  static SensorMeasurement addNameToMeasure(
+          SensorInfo sensor, SensorMeasurement measurement) =>
+      measurement.map((key, value) {
+        final name = sensor.name + (key != "" ? "_$key" : "");
+        return MapEntry(name, value);
+      });
+
+  SensorMeasurement lastValueOf(SensorInfo sensor) =>
+      _lastValues[sensor.name] ?? {};
+
+  bool isSubscribed(SensorInfo sensor) => subscriptions.containsKey(sensor);
+
+  void subscribe(SensorInfo sensor,
+      void Function(SensorMeasurement, SensorInfo) callback) {
+    if (subscriptions[sensor] != null) unsubscribe(sensor);
+    final stream = sensor.stream;
+    if (stream == null) {
+      log("sensor ${sensor.name} is not subsciable", level: 900);
+      return;
+    }
+
+    subscriptions[sensor] = stream.listen((metrics) {
+      _lastDataRead = DateTime.now();
+      _lastValues[sensor.name] = metrics;
+      callback(metrics, sensor);
+    });
+  }
+
+  Future<bool> trySubscribe(SensorInfo sensor,
+      void Function(SensorMeasurement, SensorInfo) callback) async {
+    if (!sensor.availeble && sensor.requestPermission != null) {
+      await sensor.requestPermission!();
+    }
+    if (sensor.availeble) {
+      subscribe(sensor, callback);
+    }
+    return sensor.availeble;
+  }
+
+  void unsubscribe(SensorInfo sensor) {
+    final subscriptionHandler = subscriptions[sensor];
+    if (subscriptionHandler == null) return;
+    subscriptionHandler.cancel();
+    subscriptions.remove(sensor);
+    _lastValues.remove(sensor.name);
+  }
+
+  void unsubscribeAll() {
+    subscriptions.keys.toList().forEach(unsubscribe);
+  }
 }

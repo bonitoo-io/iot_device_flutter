@@ -29,15 +29,33 @@ String generateNewId() {
   return clientIdPrefix + uuid.v4().replaceAll("-", "").substring(0, 12);
 }
 
+/// Global state of application. load called once on app start
 class AppState {
   IotCenterClient iotCenterClient;
   List<SensorInfo> sensors;
 
-  static Future saveClient(IotCenterClient client) async {
+  static Future<void> saveClient(IotCenterClient client) async {
     final sp = await SharedPreferences.getInstance();
-    final json = client.toJson();
-    final string = jsonEncode(json);
+    final map = client.toMap();
+    final string = jsonEncode(map);
     sp.setString(iotCenterSharedPreferencesKey, string);
+  }
+
+  static Future<IotCenterClient?> loadClient() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final str = sp.getString(iotCenterSharedPreferencesKey);
+      final map = jsonDecode(str ?? "");
+      final client = IotCenterClient.fromMap(map);
+      if (client == null) return null;
+      if (client.clientID == "" || client.clientID == clientIdPrefix) {
+        client.clientID = generateNewId();
+        await saveClient(client);
+      }
+      return client;
+    } catch (e) {
+      return null;
+    }
   }
 
   static Future<String?> tryDiscover() async {
@@ -57,27 +75,11 @@ class AppState {
     }
   }
 
-  static Future<IotCenterClient?> loadClient() async {
-    try {
-      final sp = await SharedPreferences.getInstance();
-      final str = sp.getString(iotCenterSharedPreferencesKey);
-      final json = jsonDecode(str ?? "");
-      final client = IotCenterClient.fromJson(json);
-      if (client == null) return null;
-      if (client.clientID == "" || client.clientID == clientIdPrefix) {
-        client.clientID = generateNewId();
-        await saveClient(client);
-      }
-      return client;
-    } catch (e) {
-      return null;
-    }
-  }
-
   static Future<IotCenterClient> setupClient() async {
     final discoverFuture = tryDiscover();
     final client = await loadClient() ??
-        IotCenterClient("", generateNewId(), device: platformStr);
+        IotCenterClient(
+            iotCenterUrl: "", clientID: generateNewId(), device: platformStr);
 
     if (!await client.testConnection()) {
       final loadedUrl = client.iotCenterUrl;
@@ -105,7 +107,16 @@ class AppState {
     final sensorsF = Sensors().sensors;
     final clientF = setupClient();
     await minLogoTimeF;
-    return AppState(await clientF, await sensorsF);
+    final sensors = await sensorsF;
+    // not ideal sorting; this preserves default list order
+    final sensorsByAvaileble = [
+      ...sensors.where((element) => element.availeble),
+      ...sensors.where(
+          (element) => !element.availeble && element.requestPermission != null),
+      ...sensors.where(
+          (element) => !element.availeble && element.requestPermission == null),
+    ];
+    return AppState(await clientF, sensorsByAvaileble);
   }
 
   AppState(this.iotCenterClient, this.sensors);
@@ -132,9 +143,7 @@ class MyApp extends StatelessWidget {
               if (snapshot.hasData) {
                 final data = snapshot.data!;
                 return HomePage(
-                  title: 'Flutter Demo Home Page',
                   client: data.iotCenterClient,
-                  saveClient: AppState.saveClient,
                   sensors: data.sensors,
                 );
               }

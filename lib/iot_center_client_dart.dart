@@ -5,8 +5,10 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+const port = 5000;
 const udpPort = 5001;
-const discoverTimeout = 1500;
+const testConnectionDefaultTimeout = Duration(seconds: 1);
+const discoverTimeout = Duration(milliseconds: 1500);
 
 Uri? uriTryParseNoProtocol(String url) => url.substring(0, 4) == "http"
     ? Uri.tryParse(url)
@@ -27,7 +29,7 @@ Future<String> fetch(String url, {post = false}) async {
   }
 }
 
-Future fetchJson(String url, {post = false}) async =>
+Future<dynamic> fetchJson(String url, {post = false}) async =>
     jsonDecode(await fetch(url, post: post));
 
 class NotConnectedException implements Exception {
@@ -47,20 +49,20 @@ class ClientConfig {
 
   ClientConfig();
 
-  factory ClientConfig.fromJson(Map<String, dynamic> json) {
+  factory ClientConfig.fromMap(Map<String, dynamic> map) {
     final config = ClientConfig();
 
-    config.influxUrl = json['influx_url'];
-    config.influxOrg = json['influx_org'];
-    config.influxToken = json['influx_token'];
-    config.influxBucket = json['influx_bucket'];
-    config.createdAt = json['createdAt'];
-    config.id = json['id'];
+    config.influxUrl = map['influx_url'];
+    config.influxOrg = map['influx_org'];
+    config.influxToken = map['influx_token'];
+    config.influxBucket = map['influx_bucket'];
+    config.createdAt = map['createdAt'];
+    config.id = map['id'];
 
     return config;
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'influx_url': influxUrl,
         'influx_org': influxOrg,
         'influx_token': influxToken,
@@ -71,22 +73,20 @@ class ClientConfig {
 }
 
 class IotCenterClient {
-  String iotCenterUrl = "";
-  String clientID = "";
+  String iotCenterUrl;
+  String clientID;
   String device;
   ClientConfig? config;
 
   InfluxDBClient? influxDBClient;
   WriteService? writeApi;
 
-  bool get connected {
-    return influxDBClient != null;
-  }
+  bool get connected => influxDBClient != null;
 
   Future<bool> testConnection([Duration? timeout]) async {
     try {
       await fetchJson("$iotCenterUrl/api/health")
-          .timeout(timeout ?? const Duration(seconds: 1));
+          .timeout(timeout ?? testConnectionDefaultTimeout);
       return true;
     } catch (e) {
       return false;
@@ -102,7 +102,7 @@ class IotCenterClient {
     try {
       final rawConfig = await fetchJson(url);
       await fetch(setDevicePostUrl, post: true);
-      config = ClientConfig.fromJson(rawConfig);
+      config = ClientConfig.fromMap(rawConfig);
 
       /// Fix influx url for docker
       final influxUri = Uri.parse(config!.influxUrl);
@@ -125,7 +125,8 @@ class IotCenterClient {
     return true;
   }
 
-  writePoint(Map<String, double> measurements, [Map<String, String>? sensors]) {
+  Future<void> writePoint(Map<String, double> measurements,
+      [Map<String, String>? sensors]) async {
     if (!connected) throw NotConnectedException();
     final point = Point("environment")
         .addTag("clientId", clientID)
@@ -139,22 +140,22 @@ class IotCenterClient {
     for (var m in measurements.entries) {
       point.addField(m.key, m.value);
     }
-    writeApi!.write(
+    await writeApi!.write(
       point,
       bucket: config!.influxBucket,
       org: config!.influxOrg,
     );
   }
 
-  disconnect() async {
-    writeApi?.close();
+  Future<void> disconnect() async {
+    await writeApi?.close();
     writeApi = null;
     influxDBClient?.close();
     influxDBClient = null;
   }
 
-  dispose() async {
-    disconnect();
+  Future<void> dispose() async {
+    await disconnect();
   }
 
   static Future<String?> tryObtainUrl(
@@ -167,11 +168,11 @@ class IotCenterClient {
           .where((event) =>
               event != null &&
               String.fromCharCodes(event.data) == "IOT_CENTER_URL_RESPONSE")
-          .map((event) => "${event!.address.address}:5000")
+          .map((event) => "${event!.address.address}:$port")
           .first;
       List<int> data = utf8.encode('IOT_CENTER_URL_REQUEST');
       udpSocket.send(data, broadcast, udpPort);
-      return await urlF.timeout(const Duration(milliseconds: discoverTimeout));
+      return await urlF.timeout(discoverTimeout);
     } catch (e) {
       return null;
     } finally {
@@ -179,18 +180,20 @@ class IotCenterClient {
     }
   }
 
-  IotCenterClient(this.iotCenterUrl, this.clientID, {this.device = "dart"});
+  IotCenterClient(
+      {this.iotCenterUrl = "", this.clientID = "", this.device = "dart"});
 
-  static IotCenterClient? fromJson(Map<String, dynamic> json) {
-    final iotCenterUrl = json['iotCenterUrl'];
-    final clientID = json['clientID'];
-    if (!(iotCenterUrl is String && clientID is String)) return null;
+  static IotCenterClient fromMap(Map<String, dynamic> map) {
+    final iotCenterUrl = map['iotCenterUrl'] ?? "";
+    final clientID = map['clientID'] ?? "";
+    if (!(iotCenterUrl is String && clientID is String)) throw Error();
 
-    final device = json['device'] ?? "dart";
+    final device = map['device'] ?? "dart";
 
-    return IotCenterClient(iotCenterUrl, clientID, device: device);
+    return IotCenterClient(
+        iotCenterUrl: iotCenterUrl, clientID: clientID, device: device);
   }
 
-  Map<String, dynamic> toJson() =>
+  Map<String, dynamic> toMap() =>
       {'iotCenterUrl': iotCenterUrl, 'clientID': clientID, 'device': device};
 }
